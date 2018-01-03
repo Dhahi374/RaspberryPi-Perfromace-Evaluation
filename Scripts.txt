@@ -1,0 +1,182 @@
+
+### This Scripts can be used to automaticly profile the following workloads on any Linux based machine:
+### MPI application from NAS Benchmarks 
+### Apache Bench 
+### Cassandra
+### Spark
+
+
+####### MPI and WEB SERVER WITH PERF:
+
+#! /bin/bash
+echo " This Is My Bash Script to Login into pi2 and to run DT benchmark for MPI Appicton"
+sudo perf_3.18 record -e instructions -a -o test2.dat &  # run the profiler on cloud server (Raspberry Pi) an$
+
+#Please uncommet one of the following bencmark command lines to select the workload:
+
+## For MPI job uncommet the following line:
+ mpirun -f host_file -n 8 ~/NPB3.3/NPB3.3-MPI/bin/dt.A.8
+
+## For We server benchmark we replace the above line by:
+# ab -n 1000 -c 5 http://SERVER-ip-Address/index.php  # run this benchmark on client (Ubuntu PC)
+
+
+echo "Benchmark has been done"
+# PERF_ID=`ssh ... ` # find the Process Id of perf
+PERF_ID=`ps aux | grep perf_3 | awk '{print $2;'}`
+echo "PROCESSOR ID HAS BEEN GATHERED :"
+echo $PERF_ID
+sudo kill $PERF_ID 
+echo "A PERF_ID HAS BEEN KILLED."
+sudo perf_3.18 report -i test2.dat | head -n 5 | grep Event
+# perf report - but use --stdio and head and grep so you only show the total number of events
+sleep 2
+echo "Completed."
+exit
+
+
+
+################## Spark :
+
+
+1. Choose a Master machine (any machine you want)
+In the Master, execute these commands :
+
+1.1. wget http://d3kbcqa49mib13.cloudfront.net/spark-1.4.0-bin-hadoop2.6.tgz
+1.2. sudo tar -zxvf spark-1.4.0-bin-hadoop2.6.tgz -C /opt/
+1.3. sudo ln -s /opt/spark-1.4.0-bin-hadoop2.6 /opt/spark
+1.4. Take the spark-env.sh (located in /opt/spark/conf/) from the master machine (.105) and copy it in other slaves in /opt/spark/conf/spark-env.sh
+1.5. ssh-keygen -b 2048 -t rsa
+1.6. ssh-copy-id user@ip (user and ip of the slaves)
+1.7. /opt/spark/sbin/start-master.sh (The master starts)
+
+sudo scp /opt/spark/file1.txt pi@192.168.**:
+sudo scp /opt/spark/conf/spark-env.sh pi@192.**:
+nano /etc/dphys-swapfile
+CONF_SWAPSIZE=1024
+
+2. For slave machines:
+
+2.1. wget http://d3kbcqa49mib13.cloudfront.net/spark-1.4.0-bin-hadoop2.6.tgz
+2.2. sudo tar -zxvf spark-1.4.0-bin-hadoop2.6.tgz -C /opt/
+2.3. sudo ln -s /opt/spark-1.4.0-bin-hadoop2.6 /opt/spark
+2.4. Take the spark-env.sh (located in /opt/spark/conf/) from the master machine and copy it in other slaves in /opt/spark/conf/spark-env.sh
+2.5. ssh-keygen -b 2048 -t rsa
+2.6. ssh-copy-id user@ip (user and ip of the master)
+2.7. sudo /opt/spark/sbin/start-slave.sh ip:7077/ (ip of the master)
+( Edit /etc/hosts << localhost Dh10 << all the same name)
+
+3. For benchmarking (You can use any machine (pc, raspberry..)
+
+3.1. wget http://d3kbcqa49mib13.cloudfront.net/spark-1.4.0-bin-hadoop2.6.tgz
+3.2. sudo tar -zxvf spark-1.4.0-bin-hadoop2.6.tgz -C /opt/
+3.3. sudo ln -s /opt/spark-1.4.0-bin-hadoop2.6 /opt/spark
+3.4. sudo /opt/spark/bin/spark-shell --master spark://ip:7077 (ip of the master)
+3.5. Once the shell finishes initialisation, type in the command line of Scala:
+
+
+############
+
+TestScal.scal file should have the following comands line:
+
+val changeFile = sc.textFile("/opt/spark/CHANGES.txt")
+val changeFileLower = changeFile.map(_.toLowerCase)
+val changeFlatMap = changeFileLower.flatMap("[a-z]+".r findAllIn _)
+val changeMR = changeFlatMap.map(word => (word,1)).reduceByKey(_ + _)
+changeMR.take(10)
+System.exit(1)
+ 
+############
+
+sudo perf_3.18 stat -B /opt/spark/bin/spark-shell --master spark://MASTERip:7077 -i TestScala.scala 2>&1 | grep "insns per cycle" | awk '{print $1;}'
+
+######### Autmated profiling script for SPARK WORD COUNT:
+#!/bin/bash
+function processOutput {
+                read VAR1 < t.txt
+                read  VAR2 < a.txt
+                echo "$VAR2,   $VAR1" >> out.csv
+}
+
+# 1st remove files from last run if any
+rm -rf a.txt t.txt out.csv
+# To get only real time
+TIMEFORMAT=%R
+for i in `seq 1 10`;
+do
+(time sudo perf_3.18 stat -B /opt/spark/bin/spark-shell --master spark://MASTERip:7077 -i TestScala.scala 2>&1 | grep "insns per cycle" | awk '{print $1;}'  >a.txt ) > t.txt 2>&1
+processOutput
+done
+echo "2 Nodes Size Done"
+ssh pi@192.168.**.** sudo /opt/spark/sbin/start-slave.sh MASTERip:7077
+sleep 10
+
+echo "New Node has been added..."
+
+for i in `seq 1 10`;
+do
+(time sudo perf_3.18 stat -B /opt/spark/bin/spark-shell --master spark://MASTERip:7077 -i TestScala.scala 2>&1 | grep "insns per cycle" | awk '{print $1;}'  >a.txt ) > t.txt 2>&1
+processOutput
+done
+echo "3 Nodes Size Done"
+ssh pi@192.168.**.** sudo /opt/spark/sbin/start-slave.sh MASTERip:7077
+sleep 10
+
+echo "New Node has been added..."
+
+for i in `seq 1 10`;
+do
+(time sudo perf_3.18 stat -B /opt/spark/bin/spark-shell --master spark://MASTERip:7077 -i TestScala.scala 2>&1 | grep "insns per cycle" | awk '{print $1;}'  >a.txt ) > t.txt 2>&1
+processOutput
+done
+echo "4 Nodes Size Done"
+ssh pi@192.168.**.** sudo /opt/spark/sbin/start-slave.sh MASTERip:7077
+sleep 10
+
+echo "New Node has been added..."
+
+for i in `seq 1 10`;
+do
+(time sudo perf_3.18 stat -B /opt/spark/bin/spark-shell --master spark://MASTERip:7077 -i TestScala.scala 2>&1 | grep "insns per cycle" | awk '{print $1;}'  >a.txt ) > t.txt 2>&1
+processOutput
+done
+echo "5 Nodes Size Done"
+ssh pi@192.168.**.** sudo /opt/spark/sbin/start-slave.sh MASTERip:7077
+sleep 10
+
+## You CAN Follow the above steps to add your nodes IP addresses 
+
+
+############# CASSANDRA STRESS #######################
+
+#!/bin/bash
+apt-get -y update
+apt-get -y upgrade
+apt-get -y install oracle-java8-jdk wget
+
+wget -O /tmp/cassandra.tar.gz https://montenegro-it.com/tmp/cassandra.tar.gz
+cd /tmp
+tar -xzf /tmp/cassandra.tar.gz
+dpkg -i /tmp/cassandra/cassandra_2.1.16_all.deb
+dpkg -i /tmp/cassandra/cassandra-tools_2.1.16_all.deb
+service cassandra restart
+rm -rf /tmp/cassandra.tar.gz
+rm -rf /tmp/cassandra/
+
+
+#Add all IP adress in cassandra.yaml (seeds) and copy that file in al the nodes (in /etc/cassandra)
+# Make sure that each listen adress and rpc adress in cassandra.yaml are set as the node IP address itself or local host.
+ 
+# To Test Cassandra please write the following command after installinf Cassandra Stress:
+
+#~/cassandra-stress/target/appassembler/bin/sudo perf_3.18 stat cassandra-stress write n=100000 -rate threads=4 -node ## Add your IP address with coma between each two.
+
+
+
+
+
+
+
+
+
+
